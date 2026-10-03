@@ -355,6 +355,10 @@ select {
 }
 
 .kbwrap {
+  width: max-content;
+  max-width: calc(100vw - 48px);
+  margin-left: 50%;
+  transform: translateX(-50%);
   overflow-x: auto;
   border-radius: 10px;
   border: 1px solid var(--rule);
