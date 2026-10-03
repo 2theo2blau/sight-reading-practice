@@ -20,11 +20,11 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #11151B;
-    --card: #1A2029;
+    --bg: #2B2B2B;
+    --card: #363636;
     --ink: #E5EAF0;
     --muted: #94A1B2;
-    --rule: #343E4B;
+    --rule: #4A4A4A;
     --accent: #86A2FF;
     --ok: #4FC48D;
     --bad: #FF6F61;
@@ -36,11 +36,11 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #11151B;
-  --card: #1A2029;
+  --bg: #2B2B2B;
+  --card: #363636;
   --ink: #E5EAF0;
   --muted: #94A1B2;
-  --rule: #343E4B;
+  --rule: #4A4A4A;
   --accent: #86A2FF;
   --ok: #4FC48D;
   --bad: #FF6F61;
@@ -66,7 +66,7 @@ body {
   min-height: 100%;
   background: var(--bg);
   color: var(--ink);
-  font-family: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: 'Montserrat', system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 16px;
   line-height: 1.45
 }
