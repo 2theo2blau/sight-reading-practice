@@ -69,9 +69,10 @@ const store = load();
 
 /* ---------- state ---------- */
 let cfg = null, current = null, prev = null, ghost = null;
-let startT = 0, attempts = 0, locked = false, noteState = '';
-let sess = {total:0, correct:0, streak:0, best:0, times:[]};
+let startT = 0, attempts = 0, locked = false, noteState = '', nextTimer = 0;
+let sess = {total:0, correct:0, streak:0, best:0, timeSum:0};
 let win = [];
+let focusWeak = false;
 const passedNow = {};
 
 /* ---------- exercise selection ---------- */
@@ -105,7 +106,7 @@ function buildCustomSelects(){
   $('#cClef').value = c.clef; $('#cLo').value = c.lo; $('#cHi').value = c.hi; $('#cAcc').checked = c.acc;
 }
 function makeCfg(){
-  win = [];
+  win = []; focusWeak = false;
   if(store.sel === 'custom'){
     const c = store.custom;
     let notes = naturals(c.lo, c.hi);
@@ -190,10 +191,28 @@ function drawNote(svg, st, note, x, cls){
 }
 
 /* ---------- game loop ---------- */
+const UNIFORM_SHARE = 0.3;
+function weakness(pool){
+  const stats = pool.map(it => store.notes[it.clef + ':' + it.n]);
+  const ref = median(stats.filter(s => s && s.c).map(s => s.ms / s.c)) || PASS_MS;
+  return stats.map(s => {
+    const miss = s ? (s.n - s.c + 1) / (s.n + 2) : 0.5;
+    const slow = s && s.c ? Math.min(3, Math.max(0.5, s.ms / s.c / ref)) : 1;
+    return slow * (1 + 4*miss);
+  });
+}
+function sample(pool, w){
+  if(!w || Math.random() < UNIFORM_SHARE) return pool[Math.floor(Math.random()*pool.length)];
+  let r = Math.random() * w.reduce((a,b) => a+b, 0);
+  for(let i=0; i<pool.length; i++){ r -= w[i]; if(r < 0) return pool[i]; }
+  return pool[pool.length-1];
+}
 function pick(){
+  clearTimeout(nextTimer);
   const pool = cfg.pool;
+  const w = focusWeak ? weakness(pool) : null;
   let it;
-  do { it = pool[Math.floor(Math.random()*pool.length)]; }
+  do { it = sample(pool, w); }
   while(pool.length > 1 && prev && it.n === prev.n && it.clef === prev.clef);
   prev = it;
   current = {...it, ...parse(it.n)};
@@ -206,7 +225,7 @@ function pick(){
 function setFeedback(text, cls){ const f = $('#feedback'); f.textContent = text; f.className = 'feedback ' + cls; }
 const mod12 = v => ((v % 12) + 12) % 12;
 function handleInput(m){
-  pressKey(m);
+  flash(m, 'press', 140);
   if(!current || locked) return;
   const ms = performance.now() - startT;
   const ok = store.settings.octave ? m === current.midi : mod12(m - current.midi) === 0;
@@ -215,13 +234,13 @@ function handleInput(m){
     locked = true; ghost = null; noteState = 'ok';
     render();
     setFeedback(attempts === 0 ? `Correct: ${fmt(current.n)} in ${(ms/1000).toFixed(1)} s` : `That's it: ${fmt(current.n)}`, 'ok');
-    setTimeout(pick, attempts === 0 ? 380 : 750);
+    nextTimer = setTimeout(pick, attempts === 0 ? 380 : 750);
     return;
   }
   if(attempts === 0) record(false, ms);
   attempts++;
   ghost = spell(m, current.acc === 'b');
-  flashKey(m, 'wrong');
+  flash(m, 'wrong', 600);
   if(store.settings.hint) showHint(current.midi);
   render();
   let msg = `You played ${fmt(ghost)}.`;
@@ -231,7 +250,7 @@ function handleInput(m){
   } else {
     locked = true;
     setFeedback(`${msg} The note was ${fmt(current.n)}.`, 'bad');
-    setTimeout(pick, 1500);
+    nextTimer = setTimeout(pick, 1500);
   }
 }
 
@@ -239,7 +258,7 @@ function handleInput(m){
 const median = a => { if(!a.length) return 0; const s=[...a].sort((x,y)=>x-y); const h=s.length>>1; return s.length%2 ? s[h] : (s[h-1]+s[h])/2; };
 function record(ok, ms){
   sess.total++;
-  if(ok){ sess.correct++; sess.streak++; sess.best = Math.max(sess.best, sess.streak); sess.times.push(ms); }
+  if(ok){ sess.correct++; sess.streak++; sess.best = Math.max(sess.best, sess.streak); sess.timeSum += ms; }
   else sess.streak = 0;
   const k = current.clef + ':' + current.n;
   const s = store.notes[k] || (store.notes[k] = {n:0, c:0, ms:0});
@@ -272,7 +291,7 @@ function checkMastery(){
 function hideBanner(){ $('#banner').classList.remove('show'); }
 function updateStats(){
   const pct = sess.total ? Math.round(100*sess.correct/sess.total) : 0;
-  const avg = sess.times.length ? (sess.times.reduce((a,b)=>a+b,0)/sess.times.length/1000).toFixed(1) + ' s' : '–';
+  const avg = sess.correct ? (sess.timeSum/sess.correct/1000).toFixed(1) + ' s' : '–';
   $('#stats').innerHTML =
     `<div><span>Correct </span><b>${sess.correct}/${sess.total}</b>${sess.total ? ` <span>(${pct}%)</span>` : ''}</div>` +
     `<div><span>Streak </span><b>${sess.streak}</b> <span>(best ${sess.best})</span></div>` +
@@ -298,7 +317,7 @@ function renderSlow(){
 }
 
 /* ---------- on-screen keyboard ---------- */
-const KB_LO = 36, KB_HI = 96; // C2 to C7
+const KB_LO = 24, KB_HI = 96; // C1 to C7, covering every custom range (F1 to G♯6)
 const isBlack = m => [1,3,6,8,10].includes(m % 12);
 const keyEls = {};
 function buildKeyboard(){
@@ -323,10 +342,17 @@ function buildKeyboard(){
     kw.scrollLeft = c4.offsetLeft - kw.clientWidth/2 + 40;
   });
 }
-function pressKey(m){ const k = keyEls[m]; if(!k) return; k.classList.add('press'); setTimeout(() => k.classList.remove('press'), 140); }
-function flashKey(m, cls){ const k = keyEls[m]; if(!k) return; k.classList.add(cls); setTimeout(() => k.classList.remove(cls), 600); }
-function showHint(m){ const k = keyEls[m]; if(k) k.classList.add('hint'); }
-function clearHint(){ document.querySelectorAll('.key.hint').forEach(k => k.classList.remove('hint')); }
+const flashTimers = {};
+function flash(m, cls, ms){
+  const k = keyEls[m]; if(!k) return;
+  const id = m + cls;
+  clearTimeout(flashTimers[id]);
+  k.classList.add(cls);
+  flashTimers[id] = setTimeout(() => k.classList.remove(cls), ms);
+}
+let hintEl = null;
+function showHint(m){ clearHint(); hintEl = keyEls[m] || null; if(hintEl) hintEl.classList.add('hint'); }
+function clearHint(){ if(hintEl){ hintEl.classList.remove('hint'); hintEl = null; } }
 
 /* ---------- computer keyboard ---------- */
 const KEYMAP = {a:0,w:1,s:2,e:3,d:4,f:5,t:6,g:7,y:8,h:9,u:10,j:11,k:12,o:13,l:14,p:15,';':16};
@@ -367,6 +393,7 @@ async function initMidi(){
     $('#midiRetry').hidden = true;
     return;
   }
+  if(midiAccess){ refreshInputs(); return; }
   try{
     midiAccess = await navigator.requestMIDIAccess();
     midiAccess.onstatechange = refreshInputs;
@@ -387,7 +414,7 @@ $('#nextLevel').addEventListener('click', () => {
   if(cfg.idx === null || cfg.idx >= LEVELS.length-1) return;
   store.sel = 'L' + (cfg.idx+1); levelSel.value = store.sel; save(); makeCfg();
 });
-$('#dismiss').addEventListener('click', hideBanner);
+$('#dismiss').addEventListener('click', () => { focusWeak = true; hideBanner(); });
 $('#slowDetails').addEventListener('toggle', () => { if($('#slowDetails').open) renderSlow(); });
 
 const bind = (id, key, after) => {
@@ -399,7 +426,7 @@ bind('#sOct', 'octave'); bind('#sRetry', 'retry'); bind('#sHint', 'hint'); bind(
 $('#reset').addEventListener('click', () => {
   if(!confirm('Reset passed levels and note timing history?')) return;
   store.mastered = {}; store.notes = {}; save();
-  sess = {total:0, correct:0, streak:0, best:0, times:[]};
+  sess = {total:0, correct:0, streak:0, best:0, timeSum:0};
   const sel = levelSel.value; buildLevelSel(); levelSel.value = sel;
   makeCfg(); renderSlow();
 });
