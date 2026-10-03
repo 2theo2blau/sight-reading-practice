@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Note Trainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Noto+Music&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="sight-trainer.css">
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Sight Reading Trainer</h1>
+      <p class="sub">Read the note and play it on your keyboard.</p>
+    </div>
+    <div class="midi" id="midi" role="status"><span class="dot"></span><span id="midiText">Connecting to MIDI…</span><button id="midiRetry" type="button" hidden>Retry</button></div>
+  </header>
+
+  <div class="controls">
+    <label class="field">Exercise
+      <select id="levelSel"></select>
+    </label>
+    <div class="custom" id="custom">
+      <label class="field">Clef
+        <select id="cClef">
+          <option value="treble">Treble</option><option value="bass">Bass</option>
+          <option value="grand">Grand staff</option><option value="alto">Alto</option><option value="tenor">Tenor</option>
+        </select>
+      </label>
+      <label class="field">Lowest note <select id="cLo"></select></label>
+      <label class="field">Highest note <select id="cHi"></select></label>
+      <label class="check"><input type="checkbox" id="cAcc"> Sharps and flats</label>
+    </div>
+  </div>
+  <p class="desc" id="desc"></p>
+
+  <div class="banner" id="banner" role="status">
+    <p id="bannerText"></p>
+    <button class="btn primary" id="nextLevel" type="button">Start next level</button>
+    <button class="btn" id="dismiss" type="button">Keep practicing</button>
+  </div>
+
+  <div class="card">
+    <svg id="staff" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Note on a staff"></svg>
+    <p class="feedback idle" id="feedback" aria-live="polite">Play the note shown.</p>
+  </div>
+
+  <div class="stats" id="stats"></div>
+  <div class="meter" id="meter"><div class="track"><div class="fill" id="meterFill"></div></div><p id="meterText"></p></div>
+
+  <div class="kbwrap" id="kbwrap"><div id="keys"></div></div>
+  <p class="kbhint" id="kbhint"></p>
+
+  <details id="slowDetails">
+    <summary>Slowest notes</summary>
+    <div class="body" id="slow"></div>
+  </details>
+  <details>
+    <summary>Settings</summary>
+    <div class="body">
+      <label class="check"><input type="checkbox" id="sOct"> Require the exact octave</label>
+      <label class="check"><input type="checkbox" id="sRetry"> Keep the note until I play it correctly</label>
+      <label class="check"><input type="checkbox" id="sHint"> Show the right key after a miss</label>
+      <label class="check"><input type="checkbox" id="sLabels"> Label the C keys on the on-screen keyboard</label>
+      <div><button class="btn" id="reset" type="button">Reset all progress</button></div>
+    </div>
+  </details>
+</main>
+
+<script src="sight-trainer.js"></script>
+</body>
+</html>
