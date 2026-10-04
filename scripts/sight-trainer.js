@@ -36,31 +36,38 @@ const B = ns => ns.map(n => ({clef:'bass', n}));
 
 /* ---------- levels ---------- */
 const LEVELS = [
-  {title:'Treble landmarks', staff:'treble', pool:T(['C4','G4','C5']), desc:'Middle C, G on the second line, and C in the third space. Learn these cold, then read other notes as steps from them.'},
-  {title:'Treble lines', staff:'treble', pool:T(['E4','G4','B4','D5','F5']), desc:'The five lines: E, G, B, D, F.'},
-  {title:'Treble spaces', staff:'treble', pool:T(['F4','A4','C5','E5']), desc:'The four spaces: F, A, C, E.'},
   {title:'Whole treble staff', staff:'treble', pool:T(naturals('D4','G5')), desc:'Every natural note from D4 to G5.'},
-  {title:'Bass landmarks', staff:'bass', pool:B(['F3','C3','C4']), desc:'F on the fourth line, C in the second space, and middle C just above the staff.'},
-  {title:'Bass lines', staff:'bass', pool:B(['G2','B2','D3','F3','A3']), desc:'The five lines: G, B, D, F, A.'},
-  {title:'Bass spaces', staff:'bass', pool:B(['A2','C3','E3','G3']), desc:'The four spaces: A, C, E, G.'},
-  {title:'Whole bass staff', staff:'bass', pool:B(naturals('E2','C4')), desc:'Every natural note from E2 to middle C.'},
-  {title:'Grand staff', staff:'grand', pool:[...T(naturals('C4','G5')), ...B(naturals('E2','C4'))], desc:'Both staves mixed, so you switch clefs on every note.'},
   {title:'Treble ledger lines', staff:'treble', pool:T(naturals('G3','D6')), desc:'The treble staff plus ledger lines, from G3 up to D6.'},
+  {title:'Treble sharps and flats', staff:'treble', pool:T(withAcc(naturals('D4','G5'))), desc:'The whole treble staff with accidentals. Any key that sounds the right pitch counts.'},
+  {title:'Whole bass staff', staff:'bass', pool:B(naturals('E2','C4')), desc:'Every natural note from E2 to middle C.'},
   {title:'Bass ledger lines', staff:'bass', pool:B(naturals('C2','E4')), desc:'The bass staff plus ledger lines, from C2 up to E4.'},
+  {title:'Bass sharps and flats', staff:'bass', pool:B(withAcc(naturals('E2','C4'))), desc:'The whole bass staff with accidentals. Any key that sounds the right pitch counts.'},
+  {title:'Grand staff', staff:'grand', pool:[...T(naturals('C4','G5')), ...B(naturals('E2','C4'))], desc:'Both staves mixed, so you switch clefs on every note.'},
   {title:'Grand staff with ledger lines', staff:'grand', pool:[...T(naturals('A3','C6')), ...B(naturals('C2','E4'))], desc:'Both staves, including the ledger notes between and around them.'},
-  {title:'Sharps and flats', staff:'grand', pool:[...T(withAcc(naturals('C4','G5'))), ...B(withAcc(naturals('E2','C4')))], desc:'Accidentals on both staves. Any key that sounds the right pitch counts.'},
+  {title:'Grand staff sharps and flats', staff:'grand', pool:[...T(withAcc(naturals('C4','G5'))), ...B(withAcc(naturals('E2','C4')))], desc:'Accidentals on both staves. Any key that sounds the right pitch counts.'},
   {title:'Full range', staff:'grand', pool:[...T(withAcc(naturals('G3','D6'))), ...B(withAcc(naturals('C2','E4')))], desc:'Everything above, mixed together.'},
 ];
 const PASS_CORRECT = 18, WINDOW = 20, PASS_MS = 3000;
 
 /* ---------- storage ---------- */
 const KEY = 'note-trainer-v1';
-const DEFAULTS = {settings:{octave:true, retry:true, hint:true, labels:true}, mastered:{}, notes:{}, sel:'L0', custom:{clef:'treble', lo:'C4', hi:'C5', acc:false}};
+const LEVELS_VERSION = 2;
+const DEFAULTS = {settings:{octave:true, retry:true, hint:true, labels:true}, mastered:{}, notes:{}, sel:'L0', custom:{clef:'treble', lo:'C4', hi:'C5', acc:false}, levels:LEVELS_VERSION};
+// Old level index -> new level index; landmarks, lines and spaces levels were removed.
+const V1_LEVELS = {3:0, 9:1, 7:3, 10:4, 8:6, 11:7, 12:8, 13:9};
+function migrate(d){
+  if(d.levels === LEVELS_VERSION) return d;
+  const mastered = {};
+  for(const i in d.mastered || {}) if(i in V1_LEVELS) mastered[V1_LEVELS[i]] = d.mastered[i];
+  let sel = d.sel;
+  if(sel && sel !== 'custom') sel = 'L' + (V1_LEVELS[sel.slice(1)] ?? 0);
+  return {...d, mastered, sel, levels:LEVELS_VERSION};
+}
 function load(){
   try{
     const raw = localStorage.getItem(KEY);
     if(!raw) return structuredClone(DEFAULTS);
-    const d = JSON.parse(raw);
+    const d = migrate(JSON.parse(raw));
     return {...structuredClone(DEFAULTS), ...d, settings:{...DEFAULTS.settings, ...(d.settings||{})}, custom:{...DEFAULTS.custom, ...(d.custom||{})}};
   }catch(e){ return structuredClone(DEFAULTS); }
 }
