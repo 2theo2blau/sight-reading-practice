@@ -46,6 +46,9 @@ const LEVELS = [
   {title:'Grand staff with ledger lines', staff:'grand', pool:[...T(naturals('A3','C6')), ...B(naturals('C2','E4'))], desc:'Both staves, including the ledger notes between and around them.'},
   {title:'Grand staff sharps and flats', staff:'grand', pool:[...T(withAcc(naturals('C4','G5'))), ...B(withAcc(naturals('E2','C4')))], desc:'Accidentals on both staves. Any key that sounds the right pitch counts.'},
   {title:'Full range', staff:'grand', pool:[...T(withAcc(naturals('G3','D6'))), ...B(withAcc(naturals('C2','E4')))], desc:'Everything above, mixed together.'},
+  {title:'Treble sequences', staff:'treble', seq:true, pool:T(withAcc(naturals('G3','D6'))), desc:'Short melodies of four or five notes on the treble staff, ledger lines and accidentals included. Play them from left to right.'},
+  {title:'Bass sequences', staff:'bass', seq:true, pool:B(withAcc(naturals('C2','E4'))), desc:'Short melodies of four or five notes on the bass staff, ledger lines and accidentals included. Play them from left to right.'},
+  {title:'Grand staff sequences', staff:'grand', seq:true, pool:[...T(withAcc(naturals('G3','D6'))), ...B(withAcc(naturals('C2','E4')))], desc:'Short melodies across both staves, sometimes crossing between clefs. Play them from left to right.'},
 ];
 const PASS_CORRECT = 18, WINDOW = 20, PASS_MS = 3000;
 
@@ -76,7 +79,8 @@ const store = load();
 
 /* ---------- state ---------- */
 let cfg = null, current = null, prev = null, ghost = null;
-let startT = 0, attempts = 0, locked = false, noteState = '', nextTimer = 0;
+let startT = 0, attempts = 0, locked = false, nextTimer = 0;
+let seq = null, pos = 0, seqFirstTry = 0, seqStartT = 0, lastSeqKey = '';
 let sess = {total:0, correct:0, streak:0, best:0, timeSum:0};
 let win = [];
 let focusWeak = false;
@@ -146,14 +150,18 @@ const CLEF_CHAR = {treble:'\u{1D11E}', bass:'\u{1D122}', alto:'\u{1D121}', tenor
 function staves(){
   return cfg.staff === 'grand' ? [{clef:'treble', top:72}, {clef:'bass', top:192}] : [{clef:cfg.staff, top:72}];
 }
+const SEQ_X0 = 100, SEQ_GAP = 76, SEQ_MAX = 5;
 function render(){
   const svg = $('#staff');
   const grand = cfg.staff === 'grand';
-  const W = 340, H = grand ? 300 : 192;
+  const W = cfg.seq ? SEQ_X0 + SEQ_GAP*(SEQ_MAX-1) + 74 : 340, H = grand ? 300 : 192;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = '';
   const x0 = 14, x1 = W - 14;
   const sts = staves();
+  const staffOf = n => sts.find(s => s.clef === n.clef) || sts[0];
+  const noteX = i => cfg.seq ? SEQ_X0 + i*SEQ_GAP : 196;
+  if(cfg.seq && current && !locked) el('rect', {x:noteX(pos)-24, y:8, width:48, height:H-16, rx:8, class:'cursor'}, svg);
   for(const st of sts){
     for(let i=0; i<5; i++) el('line', {x1:x0, y1:st.top+i*S, x2:x1, y2:st.top+i*S, class:'staffline'}, svg);
     const bottomY = st.top + 4*S;
@@ -168,16 +176,17 @@ function render(){
     el('line', {x1:x0, y1:sts[0].top, x2:x0, y2:sts[0].top+4*S, class:'bar'}, svg);
   }
   if(!current) return;
-  const st = sts.find(s => s.clef === current.clef) || sts[0];
-  const NX = 196;
-  drawNote(svg, st, current, NX, noteState);
+  const notes = cfg.seq ? seq : [current];
+  notes.forEach((n, i) => drawNote(svg, staffOf(n), n, noteX(i), n.state));
+  const st = staffOf(current);
   if(ghost){
     const g = parse(ghost);
     const p = g.dia - BOTTOM[st.clef];
-    if(p >= -10 && p <= 18) drawNote(svg, st, g, NX + 46, 'ghost');
+    if(p >= -10 && p <= 18) drawNote(svg, st, g, noteX(cfg.seq ? pos : 0) + (cfg.seq ? 38 : 46), 'ghost');
   }
-  svg.setAttribute('aria-label', `A note on the ${st.clef} staff`);
+  svg.setAttribute('aria-label', cfg.seq ? `A sequence of ${seq.length} notes, note ${pos+1} is next` : `A note on the ${st.clef} staff`);
 }
+const ACC_CHAR = {'#':'\u266F', b:'\u266D', n:'\u266E'};
 function drawNote(svg, st, note, x, cls){
   const bottomY = st.top + 4*S;
   const p = note.dia - BOTTOM[st.clef];
@@ -191,10 +200,130 @@ function drawNote(svg, st, note, x, cls){
   const d = `M ${x-RX} ${y} a ${RX} ${RY} 0 1 0 ${2*RX} 0 a ${RX} ${RY} 0 1 0 ${-2*RX} 0 Z ` +
             `M ${x-dx} ${y-dy} a ${rx} ${ry} ${ang} 1 0 ${2*dx} ${2*dy} a ${rx} ${ry} ${ang} 1 0 ${-2*dx} ${-2*dy} Z`;
   el('path', {d, 'fill-rule':'evenodd', class:'head'}, g);
-  if(note.acc){
+  const mark = note.mark ?? note.acc;
+  if(mark){
     const t = el('text', {x:x-28, y:y + S/2, 'font-size':4*S, class:'mus acc'}, g);
-    t.textContent = note.acc === '#' ? '\u266F' : '\u266D';
+    t.textContent = ACC_CHAR[mark];
   }
+}
+
+/* ---------- sequence generation ---------- */
+// Keys whose scales (and raised leading tones) stay within single sharps and flats.
+const KEYS = [
+  ...['C','G','D','A','E','B','F','Bb','Eb','Ab','Db'].map(t => ({t, minor:false})),
+  ...['A','E','B','D','G','C','F'].map(t => ({t, minor:true})),
+];
+function keyInfo(k){
+  const steps = k.minor ? [2,1,2,2,1,2,2] : [2,2,1,2,2,2,1];
+  const tonic = LETTERS.indexOf(k.t[0]);
+  let pc = PC[k.t[0]] + (k.t[1] === 'b' ? -1 : k.t[1] === '#' ? 1 : 0);
+  const acc = {};
+  for(let i=0; i<7; i++){
+    const L = LETTERS[(tonic+i) % 7], diff = mod12(pc - PC[L] + 6) - 6;
+    acc[L] = diff === 1 ? '#' : diff === -1 ? 'b' : '';
+    pc += steps[i];
+  }
+  return {acc, tonic, minor:k.minor};
+}
+// Melodic moves in staff steps (1 = second, 2 = third, ... 7 = octave) with relative weights.
+const MOVES = [[1,46],[2,24],[3,12],[4,9],[5,4],[7,5]];
+// Semitone sizes allowed for each move, ruling out tritones and augmented or diminished leaps.
+const SINGABLE = {1:[1,2], 2:[3,4], 3:[5], 4:[7], 5:[8,9], 7:[12]};
+const rand = n => Math.floor(Math.random()*n);
+function wpick(pairs){
+  let r = Math.random() * pairs.reduce((a,p) => a+p[1], 0);
+  for(const [v,w] of pairs){ r -= w; if(r < 0) return v; }
+  return pairs[pairs.length-1][0];
+}
+const RAISE = {'':'#', b:''}, LOWER = {'':'b', '#':''};
+const noteName = (d, acc) => LETTERS[d % 7] + acc + Math.floor(d / 7);
+function contour(ds, grand){
+  const moves = ds.slice(1).map((d,i) => d - ds[i]);
+  const sizes = moves.map(Math.abs);
+  if(Math.max(...ds) - Math.min(...ds) > (grand ? 11 : 9)) return false;
+  if(!moves.some((m,i) => i && Math.sign(m) !== Math.sign(moves[i-1]))) return false; // no direction change
+  if(Math.max(...sizes) < 2) return false;                                         // only steps
+  if(sizes.every(s => s === sizes[0])) return false;                               // one repeated interval
+  for(let i=1; i<moves.length; i++){
+    const a = moves[i-1], b = moves[i];
+    if(Math.sign(a) === Math.sign(b) && Math.abs(a) >= 2 && Math.abs(b) >= 2 && !(Math.abs(a) === 2 && Math.abs(b) === 2)) return false;
+  }
+  return true;
+}
+function genSequence(){
+  const grand = cfg.staff === 'grand';
+  const inPool = new Set(cfg.pool.map(it => it.clef + ':' + it.n));
+  const dias = cfg.pool.map(it => dia(it.n));
+  const lo = Math.min(...dias), hi = Math.max(...dias);
+  for(let tries=0; tries<2000; tries++){
+    const key = keyInfo(KEYS[rand(KEYS.length)]);
+    const degree = d => (d % 7 - key.tonic + 7) % 7;
+    const len = 4 + rand(2);
+    // Grand staff melodies start near middle C half the time so they cross between clefs.
+    let start = grand && Math.random() < 0.5 ? dia('E3') + rand(10) : lo + rand(hi - lo + 1);
+    if(Math.random() < 0.7 && ![0,2,4].includes(degree(start))) continue;
+    const ds = [start];
+    let dir = Math.random() < 0.5 ? 1 : -1;
+    for(let i=1; i<len; i++){
+      const last = i > 1 ? ds[i-1] - ds[i-2] : 0;
+      let move;
+      if(Math.abs(last) >= 3 && Math.random() < 0.85) move = -Math.sign(last); // step back after a leap
+      else {
+        if(Math.random() < 0.45) dir = -dir;
+        move = dir * wpick(MOVES);
+      }
+      dir = Math.sign(move);
+      ds.push(ds[i-1] + move);
+    }
+    if(ds.some(d => d < lo || d > hi) || !contour(ds, grand)) continue;
+    if(![0,2,4].includes(degree(ds[len-1])) && Math.random() < 0.6) continue;
+
+    const accs = ds.map(d => key.acc[LETTERS[d % 7]]);
+    const midiOf = i => parse(noteName(ds[i], accs[i])).midi;
+    if(key.minor && Math.random() < 0.75){
+      for(let i=0; i<len-1; i++) if(degree(ds[i]) === 6 && ds[i+1] === ds[i]+1) accs[i] = RAISE[accs[i]];
+    }
+    if(Math.random() < 0.3){
+      const cands = [];
+      for(let i=0; i<len-1; i++){
+        const step = ds[i+1] - ds[i];
+        if(Math.abs(step) === 1 && Math.abs(midiOf(i+1) - midiOf(i)) === 2) cands.push([i, step]);
+      }
+      if(cands.length){
+        const [i, step] = cands[rand(cands.length)];
+        const a = (step > 0 ? RAISE : LOWER)[accs[i]];
+        if(a !== undefined) accs[i] = a;
+      }
+    }
+    let ok = true;
+    for(let i=1; i<len && ok; i++){
+      const semis = Math.abs(midiOf(i) - midiOf(i-1)), steps = Math.abs(ds[i] - ds[i-1]);
+      if(!SINGABLE[steps].includes(semis)) ok = false;
+    }
+    if(!ok) continue;
+
+    let clef = cfg.staff;
+    if(grand) clef = ds[0] > dia('C4') || (ds[0] === dia('C4') && Math.random() < 0.5) ? 'treble' : 'bass';
+    const out = ds.map((d, i) => {
+      if(grand){
+        if(clef === 'treble' && d < dia('B3')) clef = 'bass';
+        else if(clef === 'bass' && d > dia('D4')) clef = 'treble';
+      }
+      const n = noteName(d, accs[i]);
+      return {clef, n, ...parse(n), state:''};
+    });
+    if(!out.every(it => inPool.has(it.clef + ':' + it.n))) continue;
+    const k = out.map(it => it.clef + it.n).join();
+    if(k === lastSeqKey) continue;
+    lastSeqKey = k;
+    // Without a key signature, a note after an altered one on the same line or space needs a natural sign.
+    out.forEach((it, i) => {
+      const before = out.slice(0, i).reverse().find(o => o.clef === it.clef && o.dia === it.dia);
+      it.mark = !it.acc && before && before.acc ? 'n' : it.acc;
+    });
+    return out;
+  }
+  return Array.from({length:4}, () => { const it = cfg.pool[rand(cfg.pool.length)]; return {...it, ...parse(it.n), state:''}; });
 }
 
 /* ---------- game loop ---------- */
@@ -216,19 +345,33 @@ function sample(pool, w){
 }
 function pick(){
   clearTimeout(nextTimer);
-  const pool = cfg.pool;
-  const w = focusWeak ? weakness(pool) : null;
-  let it;
-  do { it = sample(pool, w); }
-  while(pool.length > 1 && prev && it.n === prev.n && it.clef === prev.clef);
-  prev = it;
-  current = {...it, ...parse(it.n)};
-  attempts = 0; locked = false; ghost = null; noteState = '';
+  if(cfg.seq){
+    seq = genSequence(); pos = 0; current = seq[0];
+    seqFirstTry = 0; seqStartT = performance.now();
+    setFeedback('Play the notes from left to right.', 'idle');
+  } else {
+    const pool = cfg.pool;
+    const w = focusWeak ? weakness(pool) : null;
+    let it;
+    do { it = sample(pool, w); }
+    while(pool.length > 1 && prev && it.n === prev.n && it.clef === prev.clef);
+    prev = it;
+    current = {...it, ...parse(it.n), state:''};
+    setFeedback('Play the note shown.', 'idle');
+  }
+  attempts = 0; locked = false; ghost = null;
   clearHint();
-  setFeedback('Play the note shown.', 'idle');
   render();
   startT = performance.now();
 }
+function nextInSeq(){
+  pos++; current = seq[pos];
+  attempts = 0; locked = false; ghost = null;
+  clearHint();
+  render();
+  startT = performance.now();
+}
+const moreInSeq = () => cfg.seq && pos < seq.length - 1;
 function setFeedback(text, cls){ const f = $('#feedback'); f.textContent = text; f.className = 'feedback ' + cls; }
 const mod12 = v => ((v % 12) + 12) % 12;
 function handleInput(m){
@@ -237,11 +380,20 @@ function handleInput(m){
   const ms = performance.now() - startT;
   const ok = store.settings.octave ? m === current.midi : mod12(m - current.midi) === 0;
   if(ok){
-    if(attempts === 0) record(true, ms);
-    locked = true; ghost = null; noteState = 'ok';
+    if(attempts === 0){ record(true, ms); seqFirstTry++; }
+    current.state = 'ok';
+    const msg = attempts === 0 ? `Correct: ${fmt(current.n)} in ${(ms/1000).toFixed(1)} s` : `That's it: ${fmt(current.n)}`;
+    if(moreInSeq()){ setFeedback(msg, 'ok'); nextInSeq(); return; }
+    locked = true; ghost = null;
+    clearHint();
     render();
-    setFeedback(attempts === 0 ? `Correct: ${fmt(current.n)} in ${(ms/1000).toFixed(1)} s` : `That's it: ${fmt(current.n)}`, 'ok');
-    nextTimer = setTimeout(pick, attempts === 0 ? 380 : 750);
+    if(cfg.seq){
+      setFeedback(`Sequence done: ${seqFirstTry} of ${seq.length} on the first try, ${((performance.now() - seqStartT)/1000).toFixed(1)} s total`, 'ok');
+      nextTimer = setTimeout(pick, 1100);
+    } else {
+      setFeedback(msg, 'ok');
+      nextTimer = setTimeout(pick, attempts === 0 ? 380 : 750);
+    }
     return;
   }
   if(attempts === 0) record(false, ms);
@@ -256,8 +408,10 @@ function handleInput(m){
     setFeedback(msg + ' Try again.', 'bad');
   } else {
     locked = true;
+    current.state = 'miss';
+    render();
     setFeedback(`${msg} The note was ${fmt(current.n)}.`, 'bad');
-    nextTimer = setTimeout(pick, 1500);
+    nextTimer = setTimeout(moreInSeq() ? nextInSeq : pick, 1500);
   }
 }
 

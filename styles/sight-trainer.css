@@ -259,6 +259,20 @@ select {
   opacity: .8
 }
 
+.note.miss .head,
+.note.miss .acc {
+  fill: var(--bad)
+}
+
+.note.miss .ledger {
+  stroke: var(--bad)
+}
+
+.cursor {
+  fill: var(--accent);
+  opacity: .12
+}
+
 .feedback {
   text-align: center;
   font-size: 1.15rem;
