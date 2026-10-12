@@ -49,6 +49,9 @@ const LEVELS = [
   {title:'Treble sequences', staff:'treble', seq:true, pool:T(withAcc(naturals('G3','D6'))), desc:'Short melodies of four or five notes on the treble staff, ledger lines and accidentals included. Play them from left to right.'},
   {title:'Bass sequences', staff:'bass', seq:true, pool:B(withAcc(naturals('C2','E4'))), desc:'Short melodies of four or five notes on the bass staff, ledger lines and accidentals included. Play them from left to right.'},
   {title:'Grand staff sequences', staff:'grand', seq:true, pool:[...T(withAcc(naturals('G3','D6'))), ...B(withAcc(naturals('C2','E4')))], desc:'Short melodies across both staves, sometimes crossing between clefs. Play them from left to right.'},
+  {title:'Treble key signatures', staff:'treble', seq:true, keysig:true, pool:T(withAcc(naturals('G3','D6'))), desc:'Treble melodies in a key signature. Sharps and flats in the key are not written on the notes, so apply the signature yourself; written accidentals last until the end of the bar.'},
+  {title:'Bass key signatures', staff:'bass', seq:true, keysig:true, pool:B(withAcc(naturals('C2','E4'))), desc:'Bass melodies in a key signature. Sharps and flats in the key are not written on the notes, so apply the signature yourself; written accidentals last until the end of the bar.'},
+  {title:'Grand staff key signatures', staff:'grand', seq:true, keysig:true, pool:[...T(withAcc(naturals('G3','D6'))), ...B(withAcc(naturals('C2','E4')))], desc:'Grand staff melodies in a key signature. Sharps and flats in the key are not written on the notes, so apply the signature yourself; written accidentals last until the end of the bar.'},
 ];
 const PASS_CORRECT = 18, WINDOW = 20, PASS_MS = 3000;
 
@@ -80,7 +83,7 @@ const store = load();
 /* ---------- state ---------- */
 let cfg = null, current = null, prev = null, ghost = null;
 let startT = 0, attempts = 0, locked = false, nextTimer = 0;
-let seq = null, pos = 0, seqFirstTry = 0, seqStartT = 0, lastSeqKey = '';
+let seq = null, pos = 0, seqFirstTry = 0, seqStartT = 0, lastSeqKey = '', seqKey = null;
 let sess = {total:0, correct:0, streak:0, best:0, timeSum:0};
 let win = [];
 let focusWeak = false;
@@ -151,22 +154,38 @@ function staves(){
   return cfg.staff === 'grand' ? [{clef:'treble', top:72}, {clef:'bass', top:192}] : [{clef:cfg.staff, top:72}];
 }
 const SEQ_X0 = 100, SEQ_GAP = 76, SEQ_MAX = 5;
+const SIG_X = 58, SIG_W = 11, SIG_MAX = 5;
+// Treble-clef positions of key signature accidentals, in the order they are written; bass is two octaves lower.
+const SIG_POS = {'#':['F5','C5','G5','D5','A4','E5','B4'], b:['B4','E5','A4','D5','G4','C5','F4']};
+function keySig(){
+  if(!cfg.keysig || !seqKey) return null;
+  const accs = Object.values(seqKey.acc);
+  const sharps = accs.filter(a => a === '#').length, flats = accs.filter(a => a === 'b').length;
+  return sharps ? {acc:'#', n:sharps} : {acc:'b', n:flats};
+}
 function render(){
   const svg = $('#staff');
   const grand = cfg.staff === 'grand';
-  const W = cfg.seq ? SEQ_X0 + SEQ_GAP*(SEQ_MAX-1) + 74 : 340, H = grand ? 300 : 192;
+  const sig = keySig();
+  const seqX0 = cfg.keysig ? SIG_X + (sig ? sig.n : 0)*SIG_W + 44 : SEQ_X0;
+  const W = !cfg.seq ? 340 : (cfg.keysig ? SIG_X + SIG_MAX*SIG_W + 44 : SEQ_X0) + SEQ_GAP*(SEQ_MAX-1) + 74;
+  const H = grand ? 300 : 192;
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = '';
   const x0 = 14, x1 = W - 14;
   const sts = staves();
   const staffOf = n => sts.find(s => s.clef === n.clef) || sts[0];
-  const noteX = i => cfg.seq ? SEQ_X0 + i*SEQ_GAP : 196;
+  const noteX = i => cfg.seq ? seqX0 + i*SEQ_GAP : 196;
   if(cfg.seq && current && !locked) el('rect', {x:noteX(pos)-24, y:8, width:48, height:H-16, rx:8, class:'cursor'}, svg);
   for(const st of sts){
     for(let i=0; i<5; i++) el('line', {x1:x0, y1:st.top+i*S, x2:x1, y2:st.top+i*S, class:'staffline'}, svg);
     const bottomY = st.top + 4*S;
     const t = el('text', {x:x0+8, y: st.clef==='tenor' ? bottomY - S : bottomY, 'font-size':4*S, class:'mus'}, svg);
     t.textContent = CLEF_CHAR[st.clef];
+    if(sig) for(let i=0; i<sig.n; i++){
+      const p = dia(SIG_POS[sig.acc][i]) - (st.clef === 'bass' ? 14 : 0) - BOTTOM[st.clef];
+      el('text', {x:SIG_X + i*SIG_W, y:bottomY - p*S/2 + S/2, 'font-size':4*S, class:'mus'}, svg).textContent = ACC_CHAR[sig.acc];
+    }
     el('line', {x1:x1, y1:st.top, x2:x1, y2:bottomY, class:'bar'}, svg);
   }
   if(grand){
@@ -180,7 +199,8 @@ function render(){
   notes.forEach((n, i) => drawNote(svg, staffOf(n), n, noteX(i), n.state));
   const st = staffOf(current);
   if(ghost){
-    const g = parse(ghost);
+    const g = {...parse(ghost), clef:st.clef};
+    if(cfg.seq) g.mark = accMark(g, seq.slice(0, pos), cfg.keysig && seqKey ? seqKey.acc : null);
     const p = g.dia - BOTTOM[st.clef];
     if(p >= -10 && p <= 18) drawNote(svg, st, g, noteX(cfg.seq ? pos : 0) + (cfg.seq ? 38 : 46), 'ghost');
   }
@@ -223,7 +243,15 @@ function keyInfo(k){
     acc[L] = diff === 1 ? '#' : diff === -1 ? 'b' : '';
     pc += steps[i];
   }
-  return {acc, tonic, minor:k.minor};
+  return {acc, tonic, minor:k.minor, name:k.t.replace('b', '♭') + (k.minor ? ' minor' : ' major')};
+}
+// Accidental to write on a note, given earlier notes in the bar and the key signature (null for none).
+// Without a signature every accidental is written; with one, only those that change what applies.
+function accMark(it, prior, sig){
+  const before = prior.filter(o => o.clef === it.clef && o.dia === it.dia).pop();
+  const applies = before ? before.acc : sig ? sig[it.letter] : '';
+  if(it.acc !== applies) return it.acc || 'n';
+  return sig ? '' : it.acc;
 }
 // Melodic moves in staff steps (1 = second, 2 = third, ... 7 = octave) with relative weights.
 const MOVES = [[1,46],[2,24],[3,12],[4,9],[5,4],[7,5]];
@@ -256,7 +284,8 @@ function genSequence(){
   const dias = cfg.pool.map(it => dia(it.n));
   const lo = Math.min(...dias), hi = Math.max(...dias);
   for(let tries=0; tries<2000; tries++){
-    const key = keyInfo(KEYS[rand(KEYS.length)]);
+    const keys = cfg.keysig ? KEYS.filter(k => k.t !== (k.minor ? 'A' : 'C')) : KEYS;
+    const key = keyInfo(keys[rand(keys.length)]);
     const degree = d => (d % 7 - key.tonic + 7) % 7;
     const len = 4 + rand(2);
     // Grand staff melodies start near middle C half the time so they cross between clefs.
@@ -283,7 +312,7 @@ function genSequence(){
     if(key.minor && Math.random() < 0.75){
       for(let i=0; i<len-1; i++) if(degree(ds[i]) === 6 && ds[i+1] === ds[i]+1) accs[i] = RAISE[accs[i]];
     }
-    if(Math.random() < 0.3){
+    if(Math.random() < (cfg.keysig ? 0.8 : 0.3)){
       const cands = [];
       for(let i=0; i<len-1; i++){
         const step = ds[i+1] - ds[i];
@@ -316,14 +345,13 @@ function genSequence(){
     const k = out.map(it => it.clef + it.n).join();
     if(k === lastSeqKey) continue;
     lastSeqKey = k;
-    // Without a key signature, a note after an altered one on the same line or space needs a natural sign.
-    out.forEach((it, i) => {
-      const before = out.slice(0, i).reverse().find(o => o.clef === it.clef && o.dia === it.dia);
-      it.mark = !it.acc && before && before.acc ? 'n' : it.acc;
-    });
+    out.forEach((it, i) => { it.mark = accMark(it, out.slice(0, i), cfg.keysig ? key.acc : null); });
+    out.key = key;
     return out;
   }
-  return Array.from({length:4}, () => { const it = cfg.pool[rand(cfg.pool.length)]; return {...it, ...parse(it.n), state:''}; });
+  const out = Array.from({length:4}, () => { const it = cfg.pool[rand(cfg.pool.length)]; return {...it, ...parse(it.n), state:''}; });
+  out.key = null;
+  return out;
 }
 
 /* ---------- game loop ---------- */
@@ -346,7 +374,7 @@ function sample(pool, w){
 function pick(){
   clearTimeout(nextTimer);
   if(cfg.seq){
-    seq = genSequence(); pos = 0; current = seq[0];
+    seq = genSequence(); pos = 0; current = seq[0]; seqKey = seq.key;
     seqFirstTry = 0; seqStartT = performance.now();
     setFeedback('Play the notes from left to right.', 'idle');
   } else {
@@ -355,7 +383,7 @@ function pick(){
     let it;
     do { it = sample(pool, w); }
     while(pool.length > 1 && prev && it.n === prev.n && it.clef === prev.clef);
-    prev = it;
+    prev = it; seqKey = null;
     current = {...it, ...parse(it.n), state:''};
     setFeedback('Play the note shown.', 'idle');
   }
@@ -388,7 +416,7 @@ function handleInput(m){
     clearHint();
     render();
     if(cfg.seq){
-      setFeedback(`Sequence done: ${seqFirstTry} of ${seq.length} on the first try, ${((performance.now() - seqStartT)/1000).toFixed(1)} s total`, 'ok');
+      setFeedback(`Sequence done${cfg.keysig && seqKey ? ` (${seqKey.name})` : ''}: ${seqFirstTry} of ${seq.length} on the first try, ${((performance.now() - seqStartT)/1000).toFixed(1)} s total`, 'ok');
       nextTimer = setTimeout(pick, 1100);
     } else {
       setFeedback(msg, 'ok');
@@ -398,7 +426,7 @@ function handleInput(m){
   }
   if(attempts === 0) record(false, ms);
   attempts++;
-  ghost = spell(m, current.acc === 'b');
+  ghost = spell(m, current.acc ? current.acc === 'b' : !!seqKey && Object.values(seqKey.acc).includes('b'));
   flash(m, 'wrong', 600);
   if(store.settings.hint) showHint(current.midi);
   render();
